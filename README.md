@@ -136,7 +136,9 @@ The ULP exporter runs inside Fusion Electronics and must be run **twice** — on
    ```
    This writes `<design_name>-thomson-export-brd.json` to the `exports/` directory.
 
-The ULP auto-detects which editor you're in and exports the appropriate data. The schematic export contains components, nets, pin connectivity, and signal analysis. The board export contains placement coordinates, trace routing, board geometry, and layout analysis.
+The ULP auto-detects which editor you're in and exports the appropriate data. The output path is derived automatically from the ULP's own location (`argv[0]`): since the script lives at `<repo>/tools/fusion-electronics-export.ulp`, it walks up one directory to find the repo root and writes to `<repo>/exports/`. No hardcoded paths or configuration needed — it works wherever the repo is cloned.
+
+The schematic export contains components, nets, pin connectivity, and signal analysis. The board export contains placement coordinates, trace routing, board geometry, and layout analysis.
 
 ### Step 2: Add Datasheets and Supporting Files
 
@@ -206,13 +208,13 @@ Answer these in the chat and Claude will proceed with the full review.
 
 ## 7. Development Setup
 
-Development (including Claude Code) runs on an **Ubuntu 24.04** host. The repository is mounted into **Windows 11 WSL** via SSHFS so that Fusion Electronics (running on Windows) can execute the ULP exporter directly:
+Development (including Claude Code) runs on an **Ubuntu 24.04** host. The repository can be mounted into **Windows 11 WSL** via SSHFS so that Fusion Electronics (running on Windows) can execute the ULP exporter directly:
 
 ```bash
 sshfs -o allow_other,default_permissions host:/home/user/ThomsonLint ThomsonLint/
 ```
 
-This makes the `tools/fusion-electronics-export.ulp` accessible to Fusion Electronics at a WSL path like `\\wsl$\Ubuntu\home\user\ThomsonLint\tools\fusion-electronics-export.ulp`, while all editing and version control happens on the Ubuntu machine.
+The ULP auto-detects its own location and writes exports to `<repo>/exports/`, so no path configuration is needed regardless of where the repository is cloned.
 
 ## 8. Future Work
 

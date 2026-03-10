@@ -9,9 +9,9 @@ string Version = "1.0";
        "<p>"
        "Run once from the schematic editor, then again from the board editor."
        "<p>"
-       "Output: \\\\wsl$\\Ubuntu\\home\\holla\\ThomsonLint\\exports\\&lt;design_name&gt;-thomson-export-sch.json"
+       "Output: &lt;repo&gt;/exports/&lt;design_name&gt;-thomson-export-sch.json"
        "<br>"
-       "Output: \\\\wsl$\\Ubuntu\\home\\holla\\ThomsonLint\\exports\\&lt;design_name&gt;-thomson-export-brd.json"
+       "Output: &lt;repo&gt;/exports/&lt;design_name&gt;-thomson-export-brd.json"
        "<p>"
        "<author>Author: ThomsonLint project</author>"
 
@@ -81,6 +81,17 @@ string extractBaseName(string fullpath) {
   return result;
 }
 
+// --- Extract directory from a full path ---
+string extractDir(string fullpath) {
+  int lastSep = -1;
+  int i;
+  for (i = 0; i < strlen(fullpath); i++) {
+    if (fullpath[i] == '/' || fullpath[i] == '\\') lastSep = i;
+  }
+  if (lastSep >= 0) return strsub(fullpath, 0, lastSep);
+  return "";
+}
+
 // --- Build dynamic output filename from design name ---
 string designName = "";
 if (isSchematic) {
@@ -100,7 +111,10 @@ if (isBoard) {
 if (strlen(designName) == 0) designName = "unknown";
 
 string FileSuffix = isSchematic ? "-thomson-export-sch.json" : "-thomson-export-brd.json";
-string FileName = "\\\\wsl$\\Ubuntu\\home\\holla\\ThomsonLint\\exports\\" + designName + FileSuffix;
+string ulpDir = extractDir(argv[0]);   // <clone>/tools
+string repoDir = extractDir(ulpDir);    // <clone>
+string exportDir = repoDir + "/exports";
+string FileName = exportDir + "/" + designName + FileSuffix;
 
 // ---------------------------------------------------------------------------
 // Helper: JSON-escape a string
