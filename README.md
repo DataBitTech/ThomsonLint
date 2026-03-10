@@ -110,7 +110,111 @@ Provide these details via copy-paste or direct answers.
 
 The AI will output a list of potential issues, each citing a specific `rule_id` from the knowledge base.
 
-## 6. Future Work
+## 6. Using with Claude Code
+
+Claude Code can perform ThomsonLint reviews directly from the terminal, reading the exported design data and knowledge base from the repository. No file uploads needed.
+
+### Prerequisites
+
+- Claude Code CLI installed and authenticated
+- ThomsonLint repository cloned locally
+- Fusion Electronics design exported (see below)
+
+### Step 1: Export Design Data from Fusion Electronics
+
+The ULP exporter runs inside Fusion Electronics and must be run **twice** — once from each editor context:
+
+1. **Open your design in Fusion Electronics**
+2. **From the Schematic Editor**, run the ULP:
+   ```
+   RUN fusion-electronics-export.ulp
+   ```
+   This writes `<design_name>-thomson-export-sch.json` to the `exports/` directory.
+3. **Switch to the Board Editor** (PCB), run the same ULP:
+   ```
+   RUN fusion-electronics-export.ulp
+   ```
+   This writes `<design_name>-thomson-export-brd.json` to the `exports/` directory.
+
+The ULP auto-detects which editor you're in and exports the appropriate data. The schematic export contains components, nets, pin connectivity, and signal analysis. The board export contains placement coordinates, trace routing, board geometry, and layout analysis.
+
+### Step 2: Add Datasheets and Supporting Files
+
+Place any datasheets, stackup specs, or other reference documents into the same `exports/` directory:
+
+```
+exports/
+  Pendant_2_I_O_Schematic-thomson-export-sch.json
+  Pendant_2_I_O_Board-thomson-export-brd.json
+  TPS54302_datasheet.pdf
+  stackup_4layer.pdf
+  connector_pinout.pdf
+```
+
+Claude Code can read PDFs directly. Providing datasheets for critical ICs (power converters, MCUs, transceivers) up front saves back-and-forth and produces a more thorough review.
+
+### Step 3: Start a Claude Code Review Session
+
+Open a terminal in the ThomsonLint directory and start Claude Code:
+
+```bash
+cd ThomsonLint
+claude
+```
+
+Then prompt Claude to perform the review:
+
+```
+Read the review instructions in review_instructions.txt, then review my design
+using the exported JSON files and datasheets in exports/. Please begin the review.
+```
+
+Claude Code will:
+1. Read the ThomsonLint knowledge base, ontology, and examples from `review_instructions.txt`
+2. Read both the `-sch.json` and `-brd.json` export files from `exports/`
+3. Perform a pre-review assessment and ask for any missing information (datasheets, stackup details, etc.)
+4. Run through all applicable rules and report issues with specific `rule_id` citations
+
+### Step 4: Provide Additional Context (if asked)
+
+Claude may ask for:
+- Datasheets for critical ICs (it will try to web-search first)
+- Component ratings not captured in the schematic attributes
+- PCB stackup and manufacturing specs
+- Functional descriptions for non-obvious signals or connectors
+
+Answer these in the chat and Claude will proceed with the full review.
+
+### What the Export Files Contain
+
+**Schematic export** (`*-thomson-export-sch.json`):
+- Project info (name, variant, sheet count)
+- Components with ref, value, package, type classification, attributes
+- Net connectivity with pin directions and net classes
+- Signal classification (power, ground, clock, differential pairs)
+- Analysis: floating inputs, single-pin nets, voltage guesses
+
+**Board export** (`*-thomson-export-brd.json`):
+- Component placement (X/Y coordinates, rotation, top/bottom side)
+- Board geometry (dimensions, layer count, holes)
+- Signal routing (trace lengths, widths, via counts, segment counts)
+- Full trace segments for high-speed/clock/differential nets
+- Copper pours and ground plane layers
+- Components near board edges
+
+---
+
+## 7. Development Setup
+
+Development (including Claude Code) runs on an **Ubuntu 24.04** host. The repository is mounted into **Windows 11 WSL** via SSHFS so that Fusion Electronics (running on Windows) can execute the ULP exporter directly:
+
+```bash
+sshfs -o allow_other,default_permissions host:/home/user/ThomsonLint ThomsonLint/
+```
+
+This makes the `tools/fusion-electronics-export.ulp` accessible to Fusion Electronics at a WSL path like `\\wsl$\Ubuntu\home\user\ThomsonLint\tools\fusion-electronics-export.ulp`, while all editing and version control happens on the Ubuntu machine.
+
+## 8. Future Work
 
 While the initial development is complete, the framework is designed for continuous improvement. Future work could include:
 

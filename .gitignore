@@ -19,3 +19,6 @@ Thumbs.db
 # Logs and session files
 *.log
 conversation.txt
+
+# Fusion Electronics exports
+exports/*

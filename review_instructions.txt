@@ -5069,6 +5069,20 @@ When you have all the necessary information (including any you requested from th
 
 Follow these instructions for your review:
 
+#### ThomsonLint JSON Export (Primary Data Source)
+If a ThomsonLint JSON export file is provided (identified by the \`"thomsonlint_version"\` key), use this as the **PRIMARY data source** for the review. It contains machine-extracted connectivity, layout data, and pre-computed analysis that maps directly to rule conditions. The JSON includes:
+*   Complete component list with attributes, package info, and board placement coordinates
+*   Full net connectivity with pin directions, net classes, and signal classification (power, ground, clock, differential)
+*   Board layout data: dimensions, layer stackup, polygons/pours, DRC errors, mounting holes
+*   Pre-computed analysis: decoupling proximity, ESD proximity, floating inputs, single-pin nets, component edge distances, ground plane detection
+
+Cross-reference the JSON data with any uploaded images for visual verification. The structured data enables precise, quantitative rule checking that images alone cannot provide.
+
+To generate this file, run the ThomsonLint export ULP from the Fusion Electronics (EAGLE) schematic editor:
+\`\`\`
+RUN fusion-electronics-export.ulp
+\`\`\`
+
 #### File Correlation Requirements
 Before making any recommendations, you MUST correlate and cross-reference ALL provided design files:
 

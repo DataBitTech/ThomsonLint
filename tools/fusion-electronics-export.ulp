@@ -1,0 +1,868 @@
+#require 6.0200
+
+string Version = "1.0";
+
+#usage "en: <b>ThomsonLint Export</b>\n"
+       "<p>"
+       "Exports schematic or board data as a structured JSON file "
+       "optimized for AI-assisted hardware design review with ThomsonLint."
+       "<p>"
+       "Run once from the schematic editor, then again from the board editor."
+       "<p>"
+       "Output: \\\\wsl$\\Ubuntu\\home\\holla\\ThomsonLint\\exports\\&lt;design_name&gt;-thomson-export-sch.json"
+       "<br>"
+       "Output: \\\\wsl$\\Ubuntu\\home\\holla\\ThomsonLint\\exports\\&lt;design_name&gt;-thomson-export-brd.json"
+       "<p>"
+       "<author>Author: ThomsonLint project</author>"
+
+// ============================================================================
+// This ULP exports schematic + board data into separate JSON files for
+// ThomsonLint AI hardware design review.
+// Run from schematic editor for -sch.json, from board editor for -brd.json.
+// ============================================================================
+
+int isSchematic = 0;
+int isBoard = 0;
+if (schematic) isSchematic = 1;
+if (board) isBoard = 1;
+
+if (!isSchematic && !isBoard) {
+  dlgMessageBox("ERROR: This ULP must be run from the schematic or board editor.");
+  exit(1);
+}
+
+// --- Extract base design name from a path (no builtin filename()) ---
+string extractBaseName(string fullpath) {
+  // Find last path separator
+  int lastSep = -1;
+  int i;
+  for (i = 0; i < strlen(fullpath); i++) {
+    if (fullpath[i] == '/' || fullpath[i] == '\\') lastSep = i;
+  }
+  string base;
+  if (lastSep >= 0) {
+    base = strsub(fullpath, lastSep + 1);
+  } else {
+    base = fullpath;
+  }
+  // Strip extension
+  int dotPos = -1;
+  int j;
+  for (j = strlen(base) - 1; j >= 0; j--) {
+    if (base[j] == '.') { dotPos = j; break; }
+  }
+  if (dotPos > 0) base = strsub(base, 0, dotPos);
+  // Strip Fusion version suffix: " v123" at end
+  int len = strlen(base);
+  int vPos = -1;
+  for (j = len - 1; j >= 0; j--) {
+    if (base[j] == 'v' && j > 0 && base[j - 1] == ' ') {
+      // Check everything after 'v' is digits
+      int allDigits = 1;
+      int k;
+      for (k = j + 1; k < len; k++) {
+        if (base[k] < '0' || base[k] > '9') { allDigits = 0; break; }
+      }
+      if (allDigits && (j + 1) < len) { vPos = j - 1; break; }
+    }
+  }
+  if (vPos > 0) base = strsub(base, 0, vPos);
+  // Replace spaces with underscores
+  string result = "";
+  for (j = 0; j < strlen(base); j++) {
+    if (base[j] == ' ') {
+      result += "_";
+    } else {
+      string ch;
+      sprintf(ch, "%c", base[j]);
+      result += ch;
+    }
+  }
+  return result;
+}
+
+// --- Build dynamic output filename from design name ---
+string designName = "";
+if (isSchematic) {
+  schematic(SCH) {
+    // DEBUG: uncomment to see what SCH.name returns in Fusion Electronics
+    // dlgMessageBox("SCH.name = " + SCH.name);
+    designName = extractBaseName(SCH.name);
+  }
+}
+if (isBoard) {
+  board(B) {
+    // DEBUG: uncomment to see what B.name returns in Fusion Electronics
+    // dlgMessageBox("B.name = " + B.name);
+    designName = extractBaseName(B.name);
+  }
+}
+if (strlen(designName) == 0) designName = "unknown";
+
+string FileSuffix = isSchematic ? "-thomson-export-sch.json" : "-thomson-export-brd.json";
+string FileName = "\\\\wsl$\\Ubuntu\\home\\holla\\ThomsonLint\\exports\\" + designName + FileSuffix;
+
+// ---------------------------------------------------------------------------
+// Helper: JSON-escape a string
+// ---------------------------------------------------------------------------
+string jsonEscape(string s) {
+  string result = "";
+  for (int i = 0; i < strlen(s); i++) {
+    if (s[i] == '"')       result += "\\\"";
+    else if (s[i] == '\\') result += "\\\\";
+    else if (s[i] == '\n') result += "\\n";
+    else if (s[i] == '\r') result += "\\r";
+    else if (s[i] == '\t') result += "\\t";
+    else {
+      string c;
+      sprintf(c, "%c", s[i]);
+      result += c;
+    }
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: coordinate to mm string with 4 decimal places
+// ---------------------------------------------------------------------------
+string coordToMM(int coord) {
+  string s;
+  sprintf(s, "%.4f", u2mm(coord));
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Signal classification helpers
+// ---------------------------------------------------------------------------
+int IsPowerNet(string name) {
+  string upper = strupr(name);
+  if (strstr(upper, "VCC")  != -1) return 1;
+  if (strstr(upper, "VDD")  != -1) return 1;
+  if (strstr(upper, "VBUS") != -1) return 1;
+  if (strstr(upper, "VIN")  != -1) return 1;
+  if (strstr(upper, "VOUT") != -1) return 1;
+  if (strstr(upper, "VBAT") != -1) return 1;
+  if (strstr(upper, "VSYS") != -1) return 1;
+  if (strstr(upper, "+3V")  != -1) return 1;
+  if (strstr(upper, "+5V")  != -1) return 1;
+  if (strstr(upper, "+12V") != -1) return 1;
+  if (strstr(upper, "+24V") != -1) return 1;
+  if (strstr(upper, "3V3")  != -1) return 1;
+  if (strstr(upper, "5V0")  != -1) return 1;
+  if (strstr(upper, "1V8")  != -1) return 1;
+  if (strstr(upper, "1V2")  != -1) return 1;
+  if (strstr(upper, "2V5")  != -1) return 1;
+  if (strstr(upper, "PWR")  != -1) return 1;
+  return 0;
+}
+
+int IsGroundNet(string name) {
+  string upper = strupr(name);
+  if (upper == "GND")  return 1;
+  if (upper == "AGND") return 1;
+  if (upper == "DGND") return 1;
+  if (upper == "PGND") return 1;
+  if (upper == "SGND") return 1;
+  if (strstr(upper, "VSS")  != -1) return 1;
+  if (strstr(upper, "GND")  != -1) return 1;
+  return 0;
+}
+
+int IsClockNet(string name) {
+  string upper = strupr(name);
+  if (strstr(upper, "CLK")  != -1) return 1;
+  if (strstr(upper, "XTAL") != -1) return 1;
+  if (strstr(upper, "SCK")  != -1) return 1;
+  if (strstr(upper, "SCLK") != -1) return 1;
+  if (strstr(upper, "MCLK") != -1) return 1;
+  if (strstr(upper, "BCLK") != -1) return 1;
+  if (strstr(upper, "LRCK") != -1) return 1;
+  if (strstr(upper, "OSC")  != -1) return 1;
+  return 0;
+}
+
+// Check if net name matches differential pair positive pattern
+// Returns 1 if positive, -1 if negative, 0 if not differential
+int IsDiffPairMember(string name) {
+  string upper = strupr(name);
+  int len = strlen(upper);
+  // Check suffixes: _P, _N, _DP, _DN, +, -
+  if (len >= 2) {
+    string last2 = strsub(upper, len - 2);
+    if (last2 == "_P") return 1;
+    if (last2 == "_N") return -1;
+    if (last2 == "DP") return 1;
+    if (last2 == "DN") return -1;
+    if (last2 == "D+") return 1;
+    if (last2 == "D-") return -1;
+  }
+  if (len >= 3) {
+    string last3 = strsub(upper, len - 3);
+    if (last3 == "_DP") return 1;
+    if (last3 == "_DN") return -1;
+  }
+  return 0;
+}
+
+// Try to find diff pair partner name
+string FindDiffPartner(string name) {
+  int len = strlen(name);
+  string base;
+  if (len < 2) return "";
+  string last2 = strsub(name, len - 2);
+  string ulast2 = strupr(last2);
+  if (ulast2 == "_P") { base = strsub(name, 0, len - 2); return base + "_N"; }
+  if (ulast2 == "_N") { base = strsub(name, 0, len - 2); return base + "_P"; }
+  if (ulast2 == "DP") { base = strsub(name, 0, len - 2); return base + "DN"; }
+  if (ulast2 == "DN") { base = strsub(name, 0, len - 2); return base + "DP"; }
+  if (ulast2 == "D+") { base = strsub(name, 0, len - 2); return base + "D-"; }
+  if (ulast2 == "D-") { base = strsub(name, 0, len - 2); return base + "D+"; }
+  return "";
+}
+
+// Guess voltage from net name
+string GuessVoltage(string name) {
+  string upper = strupr(name);
+  if (strstr(upper, "3V3") != -1 || strstr(upper, "3.3") != -1 || strstr(upper, "+3V3") != -1) return "3.3V";
+  if (strstr(upper, "5V0") != -1 || strstr(upper, "+5V") != -1 || strstr(upper, "5V") != -1) return "5V";
+  if (strstr(upper, "1V8") != -1 || strstr(upper, "1.8") != -1) return "1.8V";
+  if (strstr(upper, "1V2") != -1 || strstr(upper, "1.2") != -1) return "1.2V";
+  if (strstr(upper, "2V5") != -1 || strstr(upper, "2.5") != -1) return "2.5V";
+  if (strstr(upper, "12V") != -1) return "12V";
+  if (strstr(upper, "24V") != -1) return "24V";
+  if (strstr(upper, "VBUS") != -1) return "5V";
+  if (strstr(upper, "VBAT") != -1) return "3.7V";
+  return "";
+}
+
+// Classify component by reference designator prefix and description
+string ClassifyComponent(string ref, string desc) {
+  if (strlen(ref) == 0) return "unknown";
+  char first = ref[0];
+  if (first == 'U') return "IC";
+  if (first == 'C') return "capacitor";
+  if (first == 'R') return "resistor";
+  if (first == 'L') return "inductor";
+  if (first == 'D') {
+    string upper = strupr(desc);
+    if (strstr(upper, "LED") != -1) return "LED";
+    if (strstr(upper, "TVS") != -1 || strstr(upper, "ESD") != -1) return "TVS";
+    if (strstr(upper, "ZENER") != -1) return "zener";
+    return "diode";
+  }
+  if (first == 'Q') return "transistor";
+  if (first == 'J') return "connector";
+  if (first == 'X' || first == 'Y') return "crystal";
+  if (first == 'F') return "fuse";
+  if (first == 'T') return "transformer";
+  if (first == 'K') return "relay";
+  if (ref[0] == 'F' && ref[1] == 'B') return "ferrite_bead";
+  if (ref[0] == 'T' && ref[1] == 'P') return "test_point";
+  if (ref[0] == 'S' && ref[1] == 'W') return "switch";
+  if (ref[0] == 'B' && ref[1] == 'T') return "battery";
+  return "other";
+}
+
+// Guess differential interface from net name
+string GuessDiffInterface(string name) {
+  string upper = strupr(name);
+  if (strstr(upper, "USB") != -1) return "USB";
+  if (strstr(upper, "ETH") != -1 || strstr(upper, "MDIO") != -1) return "Ethernet";
+  if (strstr(upper, "HDMI") != -1) return "HDMI";
+  if (strstr(upper, "LVDS") != -1) return "LVDS";
+  if (strstr(upper, "CAN") != -1) return "CAN";
+  if (strstr(upper, "RS485") != -1 || strstr(upper, "RS-485") != -1) return "RS-485";
+  if (strstr(upper, "PCIE") != -1 || strstr(upper, "PCI") != -1) return "PCIe";
+  if (strstr(upper, "SATA") != -1) return "SATA";
+  if (strstr(upper, "MIPI") != -1) return "MIPI";
+  return "unknown";
+}
+
+// Is this a high-speed or special net that needs full trace detail?
+// Check if layer number is a copper layer (EAGLE 1-16, Fusion 304=Bottom)
+int IsCopperLayer(int layerNum) {
+  if (layerNum >= 1 && layerNum <= 16) return 1;
+  if (layerNum == 304) return 1;
+  return 0;
+}
+
+int NeedsTraceDetail(string name) {
+  if (IsClockNet(name)) return 1;
+  if (IsDiffPairMember(name) != 0) return 1;
+  string upper = strupr(name);
+  if (strstr(upper, "USB") != -1) return 1;
+  if (strstr(upper, "ETH") != -1) return 1;
+  if (strstr(upper, "HDMI") != -1) return 1;
+  if (strstr(upper, "PCIE") != -1) return 1;
+  if (strstr(upper, "SATA") != -1) return 1;
+  if (strstr(upper, "MIPI") != -1) return 1;
+  if (strstr(upper, "LVDS") != -1) return 1;
+  return 0;
+}
+
+// Pin direction to string
+string PinDirectionStr(int dir) {
+  switch (dir) {
+    case PIN_DIRECTION_IN:  return "IN";
+    case PIN_DIRECTION_OUT: return "OUT";
+    case PIN_DIRECTION_IO:  return "IO";
+    case PIN_DIRECTION_OC:  return "OC";
+    case PIN_DIRECTION_HIZ: return "HIZ";
+    case PIN_DIRECTION_PAS: return "PAS";
+    case PIN_DIRECTION_PWR: return "PWR";
+    case PIN_DIRECTION_SUP: return "SUP";
+    case PIN_DIRECTION_NC:  return "NC";
+  }
+  return "UNK";
+}
+
+// Euclidean distance in mm between two board coordinates
+real DistanceMM(int x1, int y1, int x2, int y2) {
+  real dx = u2mm(x1) - u2mm(x2);
+  real dy = u2mm(y1) - u2mm(y2);
+  return sqrt(dx * dx + dy * dy);
+}
+
+// ============================================================================
+// MAIN EXPORT
+// ============================================================================
+
+int totalParts = 0;
+
+status("ThomsonLint Export: collecting data...");
+
+output(FileName, "wt") {
+
+  printf("{\n");
+  printf("  \"thomsonlint_version\": \"%s\",\n", Version);
+  printf("  \"export_date\": \"%s\",\n", jsonEscape(t2string(time())));
+  printf("  \"mode\": \"%s\",\n", isSchematic ? "schematic" : "board");
+
+  // ########################################################################
+  // SCHEMATIC MODE
+  // ########################################################################
+  if (isSchematic) {
+
+    // ========== PROJECT INFO ==========
+    int sheetCount = 0;
+    string projectName = "";
+    string variantName = "";
+
+    schematic(SCH) {
+      projectName = SCH.name;
+      variantName = variant();
+      SCH.sheets(SH) {
+        sheetCount++;
+      }
+    }
+
+    printf("  \"project\": {\n");
+    printf("    \"name\": \"%s\",\n", jsonEscape(projectName));
+    printf("    \"variant\": \"%s\",\n", jsonEscape(variantName));
+    printf("    \"sheets\": %d\n", sheetCount);
+    printf("  },\n");
+
+    status("ThomsonLint Export: writing components...");
+
+    // ========== COMPONENTS ==========
+    printf("  \"components\": [\n");
+    int compCount = 0;
+
+    schematic(SCH) {
+      SCH.parts(P) {
+        if (!P.device.package) continue;
+
+        int skip = 0;
+        if (strstr(P.value, "FID") == 0) skip++;
+        if (strstr(P.value, "DNP") == 0) skip++;
+        P.attributes(A) {
+          if (A.name == "DNI" && A.value == "1") skip++;
+          if (A.name == "DNP" && A.value == "1") skip++;
+        }
+
+        totalParts++;
+
+        if (compCount > 0) printf(",\n");
+        printf("    {\n");
+        printf("      \"ref\": \"%s\",\n", jsonEscape(P.name));
+        printf("      \"value\": \"%s\",\n", jsonEscape(P.value));
+        printf("      \"package\": \"%s\",\n", jsonEscape(P.device.package.name));
+        printf("      \"device\": \"%s\",\n", jsonEscape(P.device.name));
+        printf("      \"description\": \"%s\",\n", jsonEscape(P.device.headline));
+        printf("      \"populate\": %s,\n", (P.populate && skip == 0) ? "true" : "false");
+
+        // Component type classification
+        string compType = ClassifyComponent(P.name, P.device.headline);
+        printf("      \"type\": \"%s\",\n", compType);
+
+        // Attributes
+        printf("      \"attributes\": {\n");
+        int attrCount = 0;
+        P.attributes(A) {
+          if (attrCount > 0) printf(",\n");
+          printf("        \"%s\": \"%s\"", jsonEscape(A.name), jsonEscape(A.value));
+          attrCount++;
+        }
+        if (attrCount > 0) printf("\n");
+        printf("      }\n");
+
+        printf("    }");
+        compCount++;
+      }
+    }
+    printf("\n  ],\n");
+
+    status("ThomsonLint Export: writing nets...");
+
+    // ========== NET CLASSES ==========
+    int numClasses = 0;
+    string className[];
+    real   classWidth[];
+    real   classDrill[];
+    real   classClearance[];
+
+    schematic(SCH) {
+      SCH.classes(CL) {
+        className[numClasses] = CL.name;
+        classWidth[numClasses] = u2mm(CL.width);
+        classDrill[numClasses] = u2mm(CL.drill);
+        classClearance[numClasses] = u2mm(CL.clearance);
+        numClasses++;
+      }
+    }
+
+    // ========== NETS ==========
+    printf("  \"nets\": [\n");
+    int netCount = 0;
+
+    // Storage for analysis
+    int    numPowerNets = 0;
+    string powerNetNames[];
+    int    numGroundNets = 0;
+    string groundNetNames[];
+    int    numClockNets = 0;
+    string clockNetNames[];
+    int    numSinglePinNets = 0;
+    string singlePinNetNames[];
+
+    // Diff pair tracking
+    int    numDiffPairs = 0;
+    string diffPairPos[];
+    string diffPairNeg[];
+    string diffPairIface[];
+
+    // Floating input tracking
+    int    numFloating = 0;
+    string floatingPart[];
+    string floatingPin[];
+
+    schematic(SCH) {
+      SCH.nets(N) {
+        if (netCount > 0) printf(",\n");
+        printf("    {\n");
+        printf("      \"name\": \"%s\",\n", jsonEscape(N.name));
+
+        // Net class
+        int classIdx = N.class.number;
+        printf("      \"class\": {\n");
+        printf("        \"name\": \"%s\",\n", jsonEscape(N.class.name));
+        printf("        \"width_mm\": %.4f,\n", u2mm(N.class.width));
+        printf("        \"clearance_mm\": %.4f\n", u2mm(N.class.clearance));
+        printf("      },\n");
+
+        // Classification
+        int isPwr = IsPowerNet(N.name);
+        int isGnd = IsGroundNet(N.name);
+        int isClk = IsClockNet(N.name);
+        int diffMember = IsDiffPairMember(N.name);
+        int isDiff = (diffMember != 0) ? 1 : 0;
+        string diffPartner = FindDiffPartner(N.name);
+        string voltGuess = GuessVoltage(N.name);
+
+        printf("      \"is_power\": %s,\n", isPwr ? "true" : "false");
+        printf("      \"is_ground\": %s,\n", isGnd ? "true" : "false");
+        printf("      \"is_clock\": %s,\n", isClk ? "true" : "false");
+        printf("      \"is_differential\": %s,\n", isDiff ? "true" : "false");
+        if (isDiff) {
+          printf("      \"diff_pair_partner\": \"%s\",\n", jsonEscape(diffPartner));
+        } else {
+          printf("      \"diff_pair_partner\": null,\n");
+        }
+        if (strlen(voltGuess)) {
+          printf("      \"voltage_guess\": \"%s\",\n", voltGuess);
+        } else {
+          printf("      \"voltage_guess\": null,\n");
+        }
+
+        // Track for analysis
+        if (isPwr) { powerNetNames[numPowerNets] = N.name; numPowerNets++; }
+        if (isGnd) { groundNetNames[numGroundNets] = N.name; numGroundNets++; }
+        if (isClk) { clockNetNames[numClockNets] = N.name; numClockNets++; }
+        if (diffMember == 1) {
+          diffPairPos[numDiffPairs] = N.name;
+          diffPairNeg[numDiffPairs] = diffPartner;
+          diffPairIface[numDiffPairs] = GuessDiffInterface(N.name);
+          numDiffPairs++;
+        }
+
+        // Pins on this net
+        printf("      \"pins\": [\n");
+        int pinCount = 0;
+        int hasDriver = 0;
+        int hasInput = 0;
+        int hasPower = 0;
+
+        N.pinrefs(PR) {
+          if (pinCount > 0) printf(",\n");
+          string pinDir = PinDirectionStr(PR.pin.direction);
+          printf("        { \"part\": \"%s\", \"pin\": \"%s\", \"direction\": \"%s\" }",
+                 jsonEscape(PR.part.name), jsonEscape(PR.pin.name), pinDir);
+          pinCount++;
+
+          if (PR.pin.direction == PIN_DIRECTION_OUT || PR.pin.direction == PIN_DIRECTION_IO) hasDriver = 1;
+          if (PR.pin.direction == PIN_DIRECTION_PWR || PR.pin.direction == PIN_DIRECTION_SUP) hasPower = 1;
+          if (PR.pin.direction == PIN_DIRECTION_IN) hasInput = 1;
+        }
+        if (pinCount > 0) printf("\n");
+        printf("      ]");
+
+        // Single-pin net detection
+        if (pinCount == 1) {
+          singlePinNetNames[numSinglePinNets] = N.name;
+          numSinglePinNets++;
+        }
+
+        // Floating input detection
+        if (hasInput && !hasDriver && !hasPower && !isPwr && !isGnd) {
+          N.pinrefs(PR) {
+            if (PR.pin.direction == PIN_DIRECTION_IN) {
+              floatingPart[numFloating] = PR.part.name;
+              floatingPin[numFloating] = PR.pin.name;
+              numFloating++;
+            }
+          }
+        }
+
+        printf("\n    }");
+        netCount++;
+      }
+    }
+    printf("\n  ],\n");
+
+    status("ThomsonLint Export: computing analysis...");
+
+    // ========== ANALYSIS ==========
+    printf("  \"analysis\": {\n");
+
+    // Power nets
+    printf("    \"power_nets\": [");
+    for (int pi = 0; pi < numPowerNets; pi++) {
+      if (pi > 0) printf(", ");
+      printf("\"%s\"", jsonEscape(powerNetNames[pi]));
+    }
+    printf("],\n");
+
+    // Ground nets
+    printf("    \"ground_nets\": [");
+    for (int gi = 0; gi < numGroundNets; gi++) {
+      if (gi > 0) printf(", ");
+      printf("\"%s\"", jsonEscape(groundNetNames[gi]));
+    }
+    printf("],\n");
+
+    // Differential pairs
+    printf("    \"differential_pairs\": [\n");
+    for (int di = 0; di < numDiffPairs; di++) {
+      if (di > 0) printf(",\n");
+      printf("      { \"positive\": \"%s\", \"negative\": \"%s\", \"interface\": \"%s\" }",
+             jsonEscape(diffPairPos[di]), jsonEscape(diffPairNeg[di]), jsonEscape(diffPairIface[di]));
+    }
+    if (numDiffPairs > 0) printf("\n");
+    printf("    ],\n");
+
+    // Clock nets
+    printf("    \"clock_nets\": [");
+    for (int ci = 0; ci < numClockNets; ci++) {
+      if (ci > 0) printf(", ");
+      printf("\"%s\"", jsonEscape(clockNetNames[ci]));
+    }
+    printf("],\n");
+
+    // Floating inputs
+    printf("    \"floating_inputs\": [\n");
+    for (int fi = 0; fi < numFloating; fi++) {
+      if (fi > 0) printf(",\n");
+      printf("      { \"part\": \"%s\", \"pin\": \"%s\" }",
+             jsonEscape(floatingPart[fi]), jsonEscape(floatingPin[fi]));
+    }
+    if (numFloating > 0) printf("\n");
+    printf("    ],\n");
+
+    // Single-pin nets
+    printf("    \"single_pin_nets\": [");
+    for (int si = 0; si < numSinglePinNets; si++) {
+      if (si > 0) printf(", ");
+      printf("\"%s\"", jsonEscape(singlePinNetNames[si]));
+    }
+    printf("]\n");
+
+    printf("  }\n");
+
+  } // end schematic mode
+
+  // ########################################################################
+  // BOARD MODE
+  // ########################################################################
+  if (isBoard) {
+
+    // ========== ELEMENT POSITIONS ==========
+    int    numBoardElements = 0;
+    string boardElemName[];
+    int    boardElemX[];
+    int    boardElemY[];
+    int    boardElemAngle[];
+    int    boardElemMirror[];
+    string boardElemPackage[];
+
+    board(B) {
+      B.elements(E) {
+        boardElemName[numBoardElements] = E.name;
+        boardElemX[numBoardElements] = E.x;
+        boardElemY[numBoardElements] = E.y;
+        boardElemAngle[numBoardElements] = E.angle;
+        boardElemMirror[numBoardElements] = E.mirror;
+        boardElemPackage[numBoardElements] = E.package.name;
+        numBoardElements++;
+      }
+    }
+
+    // ========== COMPONENTS WITH PLACEMENT ==========
+    printf("  \"components\": [\n");
+    int compCount = 0;
+
+    board(B) {
+      B.elements(E) {
+        if (compCount > 0) printf(",\n");
+        printf("    {\n");
+        printf("      \"ref\": \"%s\",\n", jsonEscape(E.name));
+        printf("      \"package\": \"%s\",\n", jsonEscape(E.package.name));
+        printf("      \"value\": \"%s\",\n", jsonEscape(E.value));
+        printf("      \"x_mm\": %s,\n", coordToMM(E.x));
+        printf("      \"y_mm\": %s,\n", coordToMM(E.y));
+        printf("      \"rotation\": %.1f,\n", E.angle);
+        printf("      \"side\": \"%s\"\n", E.mirror ? "bottom" : "top");
+        printf("    }");
+        compCount++;
+        totalParts++;
+      }
+    }
+    printf("\n  ],\n");
+
+    status("ThomsonLint Export: writing board geometry...");
+
+    // ========== BOARD GEOMETRY ==========
+    printf("  \"board\": {\n");
+
+    board(B) {
+      real brdWidth = u2mm(B.area.x2 - B.area.x1);
+      real brdHeight = u2mm(B.area.y2 - B.area.y1);
+
+      printf("    \"area\": {\n");
+      printf("      \"width_mm\": %.4f,\n", brdWidth);
+      printf("      \"height_mm\": %.4f,\n", brdHeight);
+      printf("      \"x1_mm\": %s,\n", coordToMM(B.area.x1));
+      printf("      \"y1_mm\": %s,\n", coordToMM(B.area.y1));
+      printf("      \"x2_mm\": %s,\n", coordToMM(B.area.x2));
+      printf("      \"y2_mm\": %s\n", coordToMM(B.area.y2));
+      printf("    },\n");
+
+      // Layers used (copper layers 1-16)
+      printf("    \"layers_used\": [\n");
+      int layerCount = 0;
+      int maxCopperLayer = 0;
+      int numCopperLayers = 0;
+      B.layers(L) {
+        if (L.used) {
+          if (layerCount > 0) printf(",\n");
+          printf("      { \"number\": %d, \"name\": \"%s\" }", L.number, jsonEscape(L.name));
+          layerCount++;
+          // Count copper layers: EAGLE 1-16, Fusion 1=Top, 304=Bottom, 2-15 inner
+          string lname = strupr(L.name);
+          if (L.number >= 1 && L.number <= 16) numCopperLayers++;
+          else if (L.number == 304) numCopperLayers++;
+          else if (strstr(lname, "INNER") != -1 || strstr(lname, "ROUTE") != -1) numCopperLayers++;
+        }
+      }
+      if (layerCount > 0) printf("\n");
+      printf("    ],\n");
+
+      printf("    \"layer_count\": %d,\n", numCopperLayers);
+
+      // Holes
+      printf("    \"holes\": [\n");
+      int holeCount = 0;
+      B.holes(H) {
+        if (holeCount > 0) printf(",\n");
+        printf("      { \"x_mm\": %s, \"y_mm\": %s, \"drill_mm\": %.4f }",
+               coordToMM(H.x), coordToMM(H.y), u2mm(H.drill));
+        holeCount++;
+      }
+      if (holeCount > 0) printf("\n");
+      printf("    ],\n");
+
+      // Polygons (using polyPours for Fusion Electronics compatibility)
+      printf("    \"polygons\": [\n");
+      int polyCount = 0;
+      B.signals(S) {
+        S.polyPours(PO) {
+          if (IsCopperLayer(PO.layer)) {
+            if (polyCount > 0) printf(",\n");
+            printf("      { \"signal\": \"%s\", \"layer\": %d, \"thermals\": %s, \"isolate_mm\": %.4f, \"rank\": %d }",
+                   jsonEscape(S.name), PO.layer,
+                   PO.thermals ? "true" : "false",
+                   u2mm(PO.isolate), PO.rank);
+            polyCount++;
+          }
+        }
+      }
+      if (polyCount > 0) printf("\n");
+      printf("    ]\n");
+    }
+
+    printf("  },\n");
+
+    status("ThomsonLint Export: writing signals...");
+
+    // ========== SIGNALS (trace data) ==========
+    printf("  \"signals\": [\n");
+    int sigCount = 0;
+
+    board(B) {
+      B.signals(S) {
+        if (sigCount > 0) printf(",\n");
+        printf("    {\n");
+        printf("      \"name\": \"%s\",\n", jsonEscape(S.name));
+        printf("      \"is_power\": %s,\n", IsPowerNet(S.name) ? "true" : "false");
+        printf("      \"is_ground\": %s,\n", IsGroundNet(S.name) ? "true" : "false");
+        printf("      \"is_clock\": %s,\n", IsClockNet(S.name) ? "true" : "false");
+
+        // Trace summary
+        real totalLength = 0.0;
+        real minWidth = 99999.0;
+        real maxWidth = 0.0;
+        int viaCount = 0;
+        int segCount = 0;
+
+        S.vias(V) {
+          viaCount++;
+        }
+
+        S.wires(W) {
+          if (IsCopperLayer(W.layer)) {
+            real segLen = DistanceMM(W.x1, W.y1, W.x2, W.y2);
+            totalLength += segLen;
+            real w = u2mm(W.width);
+            if (w < minWidth) minWidth = w;
+            if (w > maxWidth) maxWidth = w;
+            segCount++;
+          }
+        }
+
+        if (segCount == 0) minWidth = 0.0;
+
+        printf("      \"trace_length_mm\": %.4f,\n", totalLength);
+        printf("      \"min_width_mm\": %.4f,\n", minWidth);
+        printf("      \"max_width_mm\": %.4f,\n", maxWidth);
+        printf("      \"via_count\": %d,\n", viaCount);
+        printf("      \"segment_count\": %d", segCount);
+
+        // Full trace segments for high-speed/diff/clock nets
+        if (NeedsTraceDetail(S.name)) {
+          printf(",\n      \"trace_segments\": [\n");
+          int tsCount = 0;
+          S.wires(W) {
+            if (IsCopperLayer(W.layer)) {
+              if (tsCount > 0) printf(",\n");
+              printf("        { \"layer\": %d, \"x1_mm\": %s, \"y1_mm\": %s, \"x2_mm\": %s, \"y2_mm\": %s, \"width_mm\": %.4f }",
+                     W.layer,
+                     coordToMM(W.x1), coordToMM(W.y1),
+                     coordToMM(W.x2), coordToMM(W.y2),
+                     u2mm(W.width));
+              tsCount++;
+            }
+          }
+          if (tsCount > 0) printf("\n");
+          printf("      ]");
+        }
+
+        printf("\n    }");
+        sigCount++;
+      }
+    }
+    printf("\n  ],\n");
+
+    status("ThomsonLint Export: computing board analysis...");
+
+    // ========== BOARD ANALYSIS ==========
+    printf("  \"analysis\": {\n");
+
+    // Component edge distances
+    printf("    \"component_edge_distances\": [\n");
+    int edgeCount = 0;
+    board(B) {
+      real brdXmin = u2mm(B.area.x1);
+      real brdYmin = u2mm(B.area.y1);
+      real brdXmax = u2mm(B.area.x2);
+      real brdYmax = u2mm(B.area.y2);
+
+      for (int bi = 0; bi < numBoardElements; bi++) {
+        real ex = u2mm(boardElemX[bi]);
+        real ey = u2mm(boardElemY[bi]);
+        real dLeft = ex - brdXmin;
+        real dRight = brdXmax - ex;
+        real dBottom = ey - brdYmin;
+        real dTop = brdYmax - ey;
+        real minDist = dLeft;
+        if (dRight < minDist) minDist = dRight;
+        if (dBottom < minDist) minDist = dBottom;
+        if (dTop < minDist) minDist = dTop;
+
+        if (minDist < 3.0) {
+          if (edgeCount > 0) printf(",\n");
+          printf("      { \"ref\": \"%s\", \"min_distance_mm\": %.4f }",
+                 jsonEscape(boardElemName[bi]), minDist);
+          edgeCount++;
+        }
+      }
+    }
+    if (edgeCount > 0) printf("\n");
+    printf("    ],\n");
+
+    // Ground plane layers
+    printf("    \"ground_plane_layers\": [");
+    int gpCount = 0;
+    board(B) {
+      B.signals(S) {
+        if (IsGroundNet(S.name)) {
+          S.polyPours(PO) {
+            if (IsCopperLayer(PO.layer)) {
+              if (gpCount > 0) printf(", ");
+              printf("%d", PO.layer);
+              gpCount++;
+            }
+          }
+        }
+      }
+    }
+    printf("]\n");
+
+    printf("  }\n");
+
+  } // end board mode
+
+  // ========== CLOSE ==========
+  printf("}\n");
+}
+
+string modeStr = isSchematic ? "schematic" : "board";
+status("ThomsonLint Export: done! → " + FileName);
