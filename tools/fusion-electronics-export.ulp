@@ -664,7 +664,20 @@ output(FileName, "wt") {
         printf("      \"x_mm\": %s,\n", coordToMM(E.x));
         printf("      \"y_mm\": %s,\n", coordToMM(E.y));
         printf("      \"rotation\": %.1f,\n", E.angle);
-        printf("      \"side\": \"%s\"\n", E.mirror ? "bottom" : "top");
+        printf("      \"side\": \"%s\",\n", E.mirror ? "bottom" : "top");
+
+        // Pad/pin positions (absolute board coordinates)
+        printf("      \"pads\": [\n");
+        int padCount = 0;
+        E.package.contacts(C) {
+          if (padCount > 0) printf(",\n");
+          printf("        { \"name\": \"%s\", \"x_mm\": %s, \"y_mm\": %s }",
+                 jsonEscape(C.name), coordToMM(C.x), coordToMM(C.y));
+          padCount++;
+        }
+        if (padCount > 0) printf("\n");
+        printf("      ]\n");
+
         printf("    }");
         compCount++;
         totalParts++;
