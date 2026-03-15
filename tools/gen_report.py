@@ -63,6 +63,16 @@ header .meta { font-size: .85rem; color: #64748b; margin-top: 4px; }
 .actions button.active-Accept { background: #dcfce7; border-color: #86efac; color: #166534; }
 .actions button.active-Ignore { background: #f1f5f9; border-color: #94a3b8; color: #64748b; }
 .empty { text-align: center; padding: 40px; color: #94a3b8; font-size: .95rem; }
+.summary-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: .85rem; }
+.summary-table th { background: #f1f5f9; text-align: left; padding: 8px 12px; font-weight: 600; color: #334155; border-bottom: 2px solid #e2e8f0; }
+.summary-table td { padding: 6px 12px; border-bottom: 1px solid #e2e8f0; }
+.summary-table tr:last-child td { border-bottom: none; }
+.summary-table .sev-badge { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: .75rem; font-weight: 700; text-transform: uppercase; color: #fff; }
+.summary-table .sev-badge.Critical { background: #dc2626; }
+.summary-table .sev-badge.Major { background: #ea580c; }
+.summary-table .sev-badge.Minor { background: #ca8a04; }
+.summary-table .sev-badge.Advisory { background: #2563eb; }
+.summary-table .mono { font-family: monospace; font-size: .82rem; color: #475569; }
 </style>
 </head>
 <body>
@@ -72,6 +82,7 @@ header .meta { font-size: .85rem; color: #64748b; margin-top: 4px; }
     <div class="meta">Review date: <span id="reviewDate"></span></div>
     <div class="stats" id="stats"></div>
   </header>
+  <div id="summaryTable"></div>
   <div class="toolbar">
     <label>Domain</label>
     <select id="filterDomain"><option value="">All</option></select>
@@ -159,6 +170,25 @@ function render() {
     `<span class="stat">Open: ${counts.Open}</span>` +
     `<span class="stat">Accepted: ${counts.Accept}</span>` +
     `<span class="stat">Ignored: ${counts.Ignore}</span>`;
+
+  // Summary table
+  const tableEl = document.getElementById("summaryTable");
+  let thtml = '<table class="summary-table"><thead><tr><th>#</th><th>Severity</th><th>Rule ID</th><th>Summary</th></tr></thead><tbody>';
+  let rowNum = 0;
+  SEVERITY_ORDER.forEach(sev => {
+    FINDINGS_DATA.issues.forEach((issue, idx) => {
+      if (issue.severity !== sev) return;
+      const key = findingKey(issue, idx);
+      const st = getStatus(key);
+      if (domainF && issue.domain !== domainF) return;
+      if (sevF && issue.severity !== sevF) return;
+      if (statusF && st !== statusF) return;
+      rowNum++;
+      thtml += `<tr><td>${rowNum}</td><td><span class="sev-badge ${issue.severity}">${issue.severity}</span></td><td class="mono">${esc(issue.rule_id)}</td><td>${esc(issue.summary)}</td></tr>`;
+    });
+  });
+  thtml += '</tbody></table>';
+  tableEl.innerHTML = rowNum ? thtml : '';
 
   let anyVisible = false;
   SEVERITY_ORDER.forEach(sev => {
