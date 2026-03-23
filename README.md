@@ -161,6 +161,23 @@ The ULP exporter runs inside Fusion Electronics and must be run **twice** — on
 
 The ULP auto-detects which editor you're in and exports the appropriate data. The output path is derived automatically from the ULP's own location (`argv[0]`): since the script lives at `<repo>/tools/fusion-electronics-export.ulp`, it walks up one directory to find the repo root and writes to `<repo>/exports/`. No hardcoded paths or configuration needed — it works wherever the repo is cloned.
 
+#### Output File Options
+
+By default the ULP calculates the output path automatically. Two optional flags allow you to override this:
+
+| Flag | Description |
+|------|-------------|
+| `-d` | Opens a file-save dialog so you can choose the output location interactively |
+| `-o <filename>` | Writes the export to the specified filename directly |
+
+Examples:
+```
+RUN fusion-electronics-export.ulp -d
+RUN fusion-electronics-export.ulp -o C:\Users\me\Desktop\my-export.json
+```
+
+If `-o` is used without a filename, the script will display an error dialog and exit.
+
 The schematic export contains components, nets, pin connectivity, and signal analysis. The board export contains placement coordinates, trace routing, board geometry, and layout analysis.
 
 ### Step 2: Add Datasheets and Supporting Files
