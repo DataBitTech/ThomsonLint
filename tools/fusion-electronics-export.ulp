@@ -50,14 +50,20 @@ if (argc>1)
 	string flag = argv[1];
 	if (flag[0] == '-')
 	{
-		if (strlen(flag) != 2) exit(1);
+		if (strlen(flag) != 2) {
+      dlgMessageBox("Error: Invalid flag '" + flag + "'. Use -d or -o.");
+      exit(1);
+    }
     switch (flag[1])
     {
       case 'd' : // use default output path
-        useFileDialog = true; 
+        useFileDialog = true;
         break;
       case 'o' : // use output filename provided as command line argument
-        if (argc < 3) exit(2);
+        if (argc < 3) {
+          dlgMessageBox("Error: -o flag requires an output filename.\n\nUsage: run fusion-electronics-export -o filename");
+          exit(2);
+        }
         FileName = argv[2];
         useProvidedFilename = true;
         break;
