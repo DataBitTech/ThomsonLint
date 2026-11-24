@@ -107,7 +107,7 @@ Before making any recommendations, you MUST correlate and cross-reference ALL de
 
 ### Diff Reviews
 
-When `REVIEW_SCOPE.md` says this is a diff review, the baseline design is in `exports/baseline/`, the revised design in `exports/revised/`, and `exports/DIFF.json` holds a precomputed mechanical diff of the two (components matched by `ref`, nets and board signals by `name`; each section lists what was `added`, `removed`, `changed` and, for nets, `renamed`). Then:
+When `REVIEW_SCOPE.md` says this is a diff review, the baseline design is in `exports/baseline/`, the revised design in `exports/revised/`, and `exports/DIFF.json` holds a precomputed mechanical diff of the two: `schematic`, `board` (when both designs have a layout) and `stackup` (when both have a stackup export). Components are matched by `ref`, nets and board signals by `name`; each section lists what was `added`, `removed`, `changed` and, for nets, `renamed`. Then:
 
 *   Use `DIFF.json` as the map of what changed. Read both designs for the context of each change: what a changed net connects to, which IC a moved capacitor decouples, and so on.
 *   Review the **revised** design's changes: whether each change is correct, and whether it breaks or weakens anything that worked in the baseline (regressions). Also check that changes that belong together are consistent (e.g., a new part in the schematic is also placed on the board).

@@ -2,8 +2,11 @@
 """Mechanical diff of two ThomsonLint design exports (baseline -> revised).
 
 Each side is a directory holding one schematic export (*-thomson-export-sch.json,
-"mode": "schematic") and optionally one board export (*-thomson-export-brd.json,
-"mode": "board"), as written by the Fusion Electronics ULP or the KiCad exporter.
+"mode": "schematic"), optionally one board export (*-thomson-export-brd.json,
+"mode": "board") and optionally one stackup export (*-thomson-export-stack.json,
+"mode": "stackup"), as written by the Fusion Electronics ULPs, tools/fusion_export.py
+or the KiCad exporter. Board and stackup are each diffed only when both sides
+have one (one side only is an error).
 The diff is deterministic: no judgement, just what changed. An AI reviewer then
 reviews DIFF.json together with both designs.
 
@@ -54,7 +57,7 @@ def load_export(path):
 
 def find_exports(directory):
     """{"schematic": path or None, "board": path or None} for one side."""
-    found = {"schematic": [], "board": []}
+    found = {"schematic": [], "board": [], "stackup": []}
     for name in sorted(os.listdir(directory)):
         path = os.path.join(directory, name)
         if not (os.path.isfile(path) and name.lower().endswith(".json")):
@@ -227,9 +230,10 @@ def _summary(section_diff):
 
 def build_diff(baseline_dir, revised_dir):
     base_files, rev_files = find_exports(baseline_dir), find_exports(revised_dir)
-    if (base_files["board"] is None) != (rev_files["board"] is None):
-        side = "baseline" if base_files["board"] else "revised"
-        raise ValueError(f"only the {side} side has a board export — a board diff needs both or neither")
+    for mode in ("board", "stackup"):
+        if (base_files[mode] is None) != (rev_files[mode] is None):
+            side = "baseline" if base_files[mode] else "revised"
+            raise ValueError(f"only the {side} side has a {mode} export — a {mode} diff needs both or neither")
 
     diff = {
         "thomsonlint_diff_version": DIFF_VERSION,
@@ -237,12 +241,14 @@ def build_diff(baseline_dir, revised_dir):
         "revised": rev_files,
         "schematic": diff_exports(load_export(base_files["schematic"]), load_export(rev_files["schematic"])),
         "board": None,
+        "stackup": None,
     }
-    if base_files["board"]:
-        diff["board"] = diff_exports(load_export(base_files["board"]), load_export(rev_files["board"]))
+    for mode in ("board", "stackup"):
+        if base_files[mode]:
+            diff[mode] = diff_exports(load_export(base_files[mode]), load_export(rev_files[mode]))
     diff["summary"] = {
-        "schematic": _summary(diff["schematic"]),
-        "board": _summary(diff["board"]) if diff["board"] is not None else None,
+        mode: (_summary(diff[mode]) if diff[mode] is not None else None)
+        for mode in ("schematic", "board", "stackup")
     }
     return diff
 
