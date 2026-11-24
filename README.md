@@ -408,7 +408,24 @@ sshfs -o allow_other,default_permissions host:/home/user/ThomsonLint ThomsonLint
 
 The ULP auto-detects its own location and writes exports to `<repo>/exports/`, so no path configuration is needed regardless of where the repository is cloned.
 
-## 9. Future Work
+## 9. Unattended Reviews (review-agent fork)
+
+This fork is the knowledge base of review-agent's **HW Design** workspace, which runs reviews unattended: no one answers questions during a run. Its `docs/REVIEWER_INSTRUCTIONS.md` (and the `review_instructions.txt` bundle `gen_context.sh` builds from it) is written for that:
+
+- the reviewer never asks or waits: missing information becomes `issues[]` entries with `rule_id` `"REVIEW_GAP"`;
+- it uses only the local datasheet library in `datasheets/`, never the web, and cites datasheets as `datasheets/<file>`;
+- no live Fusion capture or ULP runs: the exports are in `exports/` when the review starts, listed in `REVIEW_SCOPE.md`;
+- it writes `exports/<project_name>-findings.json` and runs `tools/validate_findings.py` until it passes. The orchestrator validates again and builds the HTML report with `tools/gen_report.py`.
+
+The orchestrator clones this repository as the workspace and, per review:
+
+- puts the uploaded exports into `exports/` (`exports/baseline/` and `exports/revised/` for a diff review);
+- for a diff review, runs `tools/thomson-diff.py exports/baseline exports/revised -o exports/DIFF.json`, a deterministic mechanical diff;
+- writes `REVIEW_SCOPE.md` into the repository root, rendered from `templates/hw_scope_full.md` or `templates/hw_scope_diff.md`.
+
+`datasheets/` (managed from the dashboard), `staging/` (uploads waiting for their review) and `REVIEW_SCOPE.md` are ignored by git. The previous fork state, based on an older upstream, is archived as the branch `archive/headless-v1`.
+
+## 10. Future Work
 
 While the initial development is complete, the framework is designed for continuous improvement. Future work could include:
 

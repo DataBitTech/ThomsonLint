@@ -6,6 +6,11 @@
 #
 # Reviewer-procedural content is kept in docs/REVIEWER_INSTRUCTIONS.md so both
 # paths (Claude Code, web AI bundle) consume one source of truth.
+#
+# This fork's docs/REVIEWER_INSTRUCTIONS.md is written for unattended reviews
+# run by review-agent's hw-design workspace (no questions, no web, findings
+# JSON only), so the bundle carries those rules too. review-agent itself
+# reads docs/REVIEWER_INSTRUCTIONS.md and the knowledge base files directly.
 
 # 1. Reviewer instructions (process + final instructions).
 cat docs/REVIEWER_INSTRUCTIONS.md

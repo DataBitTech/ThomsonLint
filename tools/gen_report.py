@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import sys
+from html import escape as html_escape
 
 HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en">
@@ -501,9 +502,19 @@ def main():
         print(f"Schema validation error: {e.message}", file=sys.stderr)
         sys.exit(1)
 
-    findings_json_str = json.dumps(findings, ensure_ascii=False)
-    html = HTML_TEMPLATE.replace("{{PROJECT_NAME}}", findings["project_name"])
-    html = html.replace("{{FINDINGS_JSON}}", findings_json_str)
+    # The findings are embedded in a <script> block, so escape every
+    # character that could end it or start markup there ("</script>" or
+    # "<!--" in a finding's text would otherwise break out of the block);
+    # U+2028/U+2029 are escaped for older JS engines. JSON reads the \u
+    # escapes back as the same characters. The project name goes into
+    # <title> as text, so it is HTML-escaped.
+    findings_json_str = (
+        json.dumps(findings, ensure_ascii=False)
+        .replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+    )
+    html = HTML_TEMPLATE.replace("{{FINDINGS_JSON}}", findings_json_str)
+    html = html.replace("{{PROJECT_NAME}}", html_escape(findings["project_name"]))
 
     os.makedirs(args.output, exist_ok=True)
     safe_name = findings["project_name"].replace(" ", "_")

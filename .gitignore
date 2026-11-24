@@ -27,3 +27,12 @@ exports/*
 # KiCad local settings
 kicad/*
 .claude/settings.json
+
+# review-agent (hw-design workspace): the datasheet library and upload
+# staging are managed by the orchestrator and never committed; the scope
+# file is written into the clone root before every review.
+datasheets/*
+!datasheets/.gitkeep
+staging/*
+!staging/.gitkeep
+REVIEW_SCOPE.md
